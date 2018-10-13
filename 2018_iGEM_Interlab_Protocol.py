@@ -1,115 +1,160 @@
+#################################################################
 #Author(s): Matt Burridge
-#Last modified: 11:37, 06/08/18
+#Last modified: 18:25, 04/10/18
 #Python 3.6.4
-#Please keep the author(s) attached to the code segment for traceability, if changes are made please append the authour list and modify the timestamp #
+#Please keep the author(s) attached to the code segment for traceability, if changes are made please append the authour list and modify the timestamp
+####################################################################################################################################################
+######################################################################################################################################################
 
-#####################################################################################################################################
-#The input from the code must be in list within a list, the sublist must contain the appropriate float type value and no whitespaces
-#####################################################################################################################################
+from opentrons import labware, instruments, robot      										# Import Opentrons Api 
+from sqlite3 import IntegrityError															# Import error for any new containers 
 
-from opentrons import labware, instruments, robot, modules									# Import all opentrons API 
-from sqlite3 import IntegrityError															# Import sqlite3 for custom container support 
+#####################################################################################################################################################
+#####################################################################################################################################################
 
-#####################################################################################################################################
-#####################################################################################################################################
-# LOADED LABWARE
+tiprack_300 = labware.load("opentrons-tiprack-300ul", '11')									# Can change positions
+tiprack_300_2 = labware.load("opentrons-tiprack-300ul", '10')								# This is 96 well not 24 falcon just for example
+Test_Devices = labware.load("96-PCR-flat", '2')										
+Test_Device_Plate = labware.load("96-PCR-flat", '3')              								 
+trash = robot.fixed_trash
 
-TempDeck = modules.load('tempdeck', '6')													# Loads TempDeck
-tiprack200_1 = labware.load('opentrons-tiprack-300ul', '9')									
-Compcells1 = labware.load('96-flat', '6', "compcells1", share=True)
-trash = robot.fixed_trash																	# Specify trash 
-Culture = labware.load('duran_100', '4')													# Chilledflask_100 and duran_250 are custom containers 
-Buffers = labware.load('96-deep-well', '3')  
+#####################################################################################################################################################
+#####################################################################################################################################################
 
-#####################################################################################################################################
-#####################################################################################################################################
-# LOADED PIPETTES 
-# CAN CHANGE IF NEEDED
-
-P300 = instruments.P300_Single(																# Import Pipette, set aspiration/dispense rates and equip with rack 
-    mount='right',
-    aspirate_flow_rate=200,
-    dispense_flow_rate=200,
-    tip_racks=[tiprack200_1],
-    trash_container=trash
+P300 = instruments.P300_Single(																# Import pipette types, P300 or P10 
+	mount='right',																			# If using different pipette tips, modify float 
+	aspirate_flow_rate=200,																	# and pipette commands in command block 
+	dispense_flow_rate=200,																	# Assign tiprack and trash, make sure aspirate/dispense speeds
+	tip_racks=[tiprack_300],																# are suitable for reagent viscosity
+	trash_container=trash 
 )
 
+#####################################################################################################################################################
+#####################################################################################################################################################
+# Preamble 
 
-#####################################################################################################################################
-#####################################################################################################################################
-# BELOW ARE VALUES THAT CAN BE CHANGED 
+Volume = 100																				# Volume of device to be transfered to plate
 
-target_temperature = 4																		# Specifies TempDeck temperature, 4 degrees is best for this protocol 
+# Positions
 
-Even_wells= [
-	'B2', 'B4', 'B6', 'B8', 'B10', 															# Specify the target wells that you want to have bacterial aliquots in 
-	'C1', 'C3', 'C5', 'C7', 'C9',
-	'D2', 'D4', 'D6', 'D8', 'D10', 
-	'E1', 'E3', 'E5', 'E7', 'E9',
-	'F2', 'F4', 'F6', 'F8', 'F10'
-]
+LB_CAM = Test_Devices('H1')																	# Location of LB_CAM stock
 
-Buffers_positions = Buffers.wells('A1', length=25)											# Specify the buffer positions, change length=25 to whatever the number
-																							# of buffers you have, eg if 15 buffers length=15
-#####################################################################################################################################
-#####################################################################################################################################
-# PREAMBLE
-# IF WORKING WITH E. COLI, BELOW IS A OPTIMAL PROTOCOL THAT ONLY REQUIRES 1 WASH STEP 
-# IF INVESTINGATING DIFFERENT INCUBATION TIMES, ALTER P300 DELAYS 
-# IF WANTING TO TURN TEMPDECK ON CONSTANTLY, REMOVE ALL tempdeck.disengage() AND PLACE BEFORE
-# FINAL ROBOT COMMENT
-# TURBLENT AIRFLOW WITHIN THE OT-2, TRY TO MINIMISE WITH FAN SHIELD
+Cultures_Co1 = [
+	'A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'C1', 'C2']											# Location of colony 1 test device cultures as follows
+																							# neg/pos/1/2/3/4/5/6
+Cultures_Co2 = [
+	'D1', 'D2', 'D3', 'E1', 'E2', 'E3', 'F1', 'F2']											# Location of colony 2 test device cultures as follows
+																							# neg/pos/1/2/3/4/5/6											
 
-target_temperature1 = 4																		# Cold Incubation 
+# Destinations in 96 well plate of colony 1 devices
+Neg_Co1 = Test_Device_Plate.wells('A1', to='D1')
+Pos_Co1 =  Test_Device_Plate.wells('A2', to='D2')
+TD1_Co1 = Test_Device_Plate.wells('A3', to='D3')
+TD2_Co1 =  Test_Device_Plate.wells('A4', to='D4')
+TD3_Co1 = Test_Device_Plate.wells('A5', to='D5')
+TD4_Co1 =  Test_Device_Plate.wells('A6', to='D6')
+TD5_Co1 = Test_Device_Plate.wells('A7', to='D7')
+TD6_Co1 =  Test_Device_Plate.wells('A8', to='D8')
 
-TempDeck.set_temperature(target_temperature1)												# Sets temperature to 4
-TempDeck.wait_for_temp()
+# Variable of destination list to make transfer command simple
+Co1_Destinations = [Neg_Co1, Pos_Co1, TD1_Co1, 
+	TD2_Co1, TD3_Co1, TD4_Co1,
+	TD5_Co1, TD6_Co1]
+
+# Destinations in 96 well plate of colony 2 devices
+Neg_Co2 = Test_Device_Plate.wells('E1', to='H1')
+Pos_Co2 =  Test_Device_Plate.wells('E2', to='H2')
+TD1_Co2 = Test_Device_Plate.wells('E3', to='H3')
+TD2_Co2 =  Test_Device_Plate.wells('E4', to='H4')
+TD3_Co2 = Test_Device_Plate.wells('E5', to='H5')
+TD4_Co2 =  Test_Device_Plate.wells('E6', to='H6')
+TD5_Co2 = Test_Device_Plate.wells('E7', to='H7')
+TD6_Co2 =  Test_Device_Plate.wells('E8', to='H8')
+
+# Variable of destination list to make transfer command simple
+Co2_Destinations = [Neg_Co2, Pos_Co2, TD1_Co2, 
+	TD2_Co2, TD3_Co2, TD4_Co2,
+	TD5_Co2, TD6_Co2]
 
 
 
-target1 = Compcells1(Even_wells)															# Where your cells are going 
 
-robot.home()																				
-robot.comment("Make sure that centrifuge has been chilled down to 4*C and all buffers are on ice.")
-robot.comment("All plates should be chilled at the beginning and culture should be incubated on ice for 15 minutes before start.")
-robot.comment("If all prepared, press resume")
+#####################################################################################################################################################
+#####################################################################################################################################################
+# Step 1, Make a 1:10 dilution of O/N in LB+CAM 
+	# Easier to do by hand 
+
+
+#####################################################################################################################################################
+#####################################################################################################################################################
+# Step 2, Dilute the cultures further to target Abs600 of 0.02
+	# Should be a final volume of 12 mL LB+CAM 
+		# Easier to do by hand 
+		
+
+#####################################################################################################################################################
+#####################################################################################################################################################
+# Step 3, take 100 mL of diluted culture and pipette into plate 
+																							# zip allows for lists to be iterated together
+for TD1, CTD1 in zip(Cultures_Co1,Co1_Destinations):										# TD1 = Test Device cultures 1											
+    P300.distribute(																		# CTD1 = Test Devices 100 mL aliquot destination for culture 1
+        Volume,
+        Test_Devices(TD1),
+        CTD1,
+        new_tip ='always') 
+        
+robot.comment("Finished Colony 1")
+
+for TD2, CTD2 in zip(Cultures_Co2, Co2_Destinations):										# TD2 = Test Device colony 2 
+    P300.distribute(																		# CTD2 = Test Devices 100 mL aliquot destination for culture 2
+        Volume,
+        Test_Devices(TD2),
+        CTD2,
+        new_tip ='always')
+    
+robot.comment("Finished Colony 2")
+
+P300.transfer(																				# Transfering the LB+CAM control 
+    Volume,
+    LB_CAM,
+    Test_Device_Plate.cols(9))
+robot.comment("Finished LB+CAM")
+
 robot.pause()
- 
-#####################################################################################################################################
-#####################################################################################################################################
-#bacterial culture																			# This is the first step of protocol, 200 uL bacterial culture at OD 0.4-0.6 
+robot.comment("Pausing")
+    
+
+
+#####################################################################################################################################################
+# Step 4, take 500 mL of 6 hour sample and pipette into plate 
+	# If buggy and step 3 is cycled through twice, delete this section 
+
+for TD1, CTD1 in zip(Cultures_Co1,Co1_Destinations):
+    P300.distribute(
+        Volume,
+        Test_Devices(TD1),
+        CTD1,
+        new_tip ='always') 
+        
+robot.comment("Finished Colony 1")
+
+for TD2, CTD2 in zip(Cultures_Co2, Co2_Destinations):
+    P300.distribute(
+        Volume,
+        Test_Devices(TD2),
+        CTD2,
+        new_tip ='always')
+    
+robot.comment("Finished Colony 2")
 
 P300.transfer(
-	200,
-	Culture('A1'),
-	target1(),																				# Specified in preamble, where the aliquots go
-	new_tip='once',
-	blow_out=True)	
-robot.comment("Time to centrifuge your cultures")											# Pause to allow time for bacteria to be pelleted via centrifuge
+    Volume,
+    LB_CAM,
+    Test_Device_Plate.cols(9))
+robot.comment("Finished LB+CAM")
+
 robot.pause()
-robot.comment("Resume when cultures have been centrifuged")
+robot.comment("Pausing")
+    
 
-#####################################################################################################################################
-#####################################################################################################################################
-# Wash Aliquot
-
-P300.transfer(
-	200,
-	target1(),
-	Culture('A1').top(-27),																	# Culture is now used as microbial waste to reduce space
-	new_tip='once',																			# Dispenses -27 mm below top to prevent contamination via
-	blow_out=True)																			# tip touching culture
-
-P300.transfer(																			
-	100,
-	Buffers_positions,																		# Follows the positions as specified in preamble, goes through columns
-	target1(),																				# Can change buffer_positions to any position if only using 1 buffer
-	mix_after=(5, 100),
-	new_tip='always')
-
-robot.comment("!!!REMOVE CELLS FROM TEMPDECK, TEMPDECK WILL DISENGAGE WHEN RESUMED AND HEAT!!!")
-robot.pause()
-robot.comment("!!!REMOVE CELLS FROM TEMPDECK, TEMPDECK WILL DISENGAGE WHEN RESUMED AND HEAT!!!")
-
-TempDeck.deactivate()																							
-robot.comment("Protocol Finished")
+#####################################################################################################################################################
